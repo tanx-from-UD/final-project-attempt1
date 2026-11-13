@@ -2,179 +2,278 @@ from drafter import *
 from dataclasses import dataclass
 from bakery import assert_equal
 
-
 # --- 1. DATACLASSES ---
 
 @dataclass
 class Chemical:
     name: str
     formula: str
-    coefficient: int
+    coef: int
     molar_mass: float
-    mass_grams: float
+    mass: float
     is_reactant: bool
-    notes: str
-
 
 @dataclass
 class State:
-    equation_text: str
+    equation: str
     chemicals: list[Chemical]
     actual_yield: float
-    result_message: str
+    msg: str
 
 
-# --- 2. HELPER FUNCTIONS ---
+# --- 2. HELPER FUNCTION ---
 
-# Finds and returns the limiting reactant based on mole ratios
-def get_limiting_reactant(reactants: list[Chemical]) -> Chemical:
-    limiting_reactant = reactants[0]
-    min_ratio = (
-        (limiting_reactant.mass_grams / limiting_reactant.molar_mass)
-        / limiting_reactant.coefficient
-    )
+def get_limiting(reactants):
+    # Start with the first one as the baseline
+    limiting = reactants[0]
+    min_ratio = (limiting.mass / limiting.molar_mass) / limiting.coef
 
     for r in reactants:
-        if r.molar_mass > 0 and r.coefficient > 0:
-            moles = r.mass_grams / r.molar_mass
-            ratio = moles / r.coefficient
-            if ratio < min_ratio:
-                min_ratio = ratio
-                limiting_reactant = r
+        ratio = (r.mass / r.molar_mass) / r.coef
+        if ratio < min_ratio:
+            min_ratio = ratio
+            limiting = r
 
-    return limiting_reactant
+    return limiting
 
 
-# Formats a single Chemical instance into a readable summary string
-def format_chemical_line(chem: Chemical) -> str:
-    role = "Reactant" if chem.is_reactant else "Product"
-    return (
-        f"- {chem.name} ({chem.formula}) | {chem.coefficient} moles, "
-        f"{chem.molar_mass} g/mol | {role} | Starting amount: {chem.mass_grams}g"
-    )
-
-
-# --- 3. ROUTES & PAGES ---
+# --- 3. ROUTES ---
 
 @route
-def index(state: State) -> Page:
-    # Show the main welcome page
+def index(state: State):
     return Page(state, [
-        "Welcome to Xavier's Stoichiometry Calculator!",
-        "Let's figure out limiting reactants, theoretical yields, and percent yields.",
-        Button("Let's get started", reaction_input)
+        "Xavier's Stoichiometry Calculator",
+        "Enter your balanced equation:",
+        TextBox("eq", "e.g., N2 + 3H2 -> 2NH3"),
+        Button("Start", save_eq)
     ])
 
+@route
+def save_eq(state: State, eq: str):
+    if not eq:
+        state.msg = "Equation can't be empty."
+        return index(state)
+    state.equation = eq
+    return main_hub(state)
 
 @route
-def reaction_input(state: State) -> Page:
-    # Ask the user for the chemical equation
-    return Page(state, [
-        "What is your balanced equation?",
-        TextBox("equation", "e.g., N2 + 3H2 -> 2NH3"),
-        Button("Lock it in", save_reaction)
-    ])
-
-
-@route
-def save_reaction(state: State, equation: str) -> Page:
-    # Check if equation is empty and save it
-    if not equation:
-        state.result_message = "You can't leave the equation blank! Try again."
-        return reaction_input(state)
-
-    state.equation_text = equation
-    return reaction_summary(state)
-
-
-@route
-def reaction_summary(state: State) -> Page:
-    # Show equation and current list of chemicals
-    content = [
-        f"Working with: {state.equation_text}",
-        "---",
-        "Currently added chemicals:"
-    ]
-
+def main_hub(state: State):
+    content = [f"Equation: {state.equation}", "---", "Chemicals:"]
+    
     if not state.chemicals:
-        content.append("Nothing added yet.")
+        content.append("None added yet.")
     else:
-        for chem in state.chemicals:
-            content.append(format_chemical_line(chem))
-
+        for c in state.chemicals:
+            kind = "Reactant" if c.is_reactant else "Product"
+            content.append(f"- {c.name} ({c.formula}) | {c.mass}g | {kind}")
+            
     content.extend([
         "---",
-        Button("Add another chemical (Reactant or Product)", add_chemical),
-        "Did you run this in a lab? Enter actual yield in grams (leave 0.0 if not):",
-        TextBox("actual_yield_input", "0.0"),
-        Button("Run the Numbers", calculate_results),
+        Button("Add Chemical", add_chem),
+        "Actual yield in grams (leave 0.0 if not known):",
+        TextBox("actual_y", "0.0"),
+        Button("Calculate", calc_results),
+        Button("Restart", reset)
+    ])
+    return Page(state, content)
+
+@route
+def add_chem(state: State):
+    return Page(state, [
+        "Type:", SelectBox("c_type", ["Reactant", "Product"]),
+        "Name:", TextBox("name", "Ammonia"),
+        "Formula:", TextBox("formula", "NH3"),
+        "Coefficient:", TextBox("coef", "2"),
+        "Molar Mass (g/mol):", TextBox("mmass", "17.031"),
+        "Starting Mass (0 for products):", TextBox("mass", "0.0"),
+        Button("Save", save_chem)
+    ])
+
+@route
+def save_chem(state: State, c_type: str, name: str, formula: str, coef: str, mmass: str, mass: str):
+    is_r = (c_type == "Reactant")
+    new_chem = Chemical(name, formula, int(coef), float(mmass), float(mass), is_r)
+    state.chemicals.append(new_chem)
+    return main_hub(state)
+
+@route
+def calc_results(state: State, actual_y: str):
+    state.actual_yield = float(actual_y)
+    
+    reactants = [c for c in state.chemicals if c.is_reactant]
+    products = [c for c in state.chemicals if not c.is_reactant]
+    
+    if not reactants or not products:
+        state.msg = "Need at least 1 reactant and 1 product."
+        return results(state)
+
+    lim = get_limiting(reactants)
+    prod = products[0]
+    
+    # Calculate yield based on the limiting reactant
+    moles_lim = lim.mass / lim.molar_mass
+    ratio = moles_lim / lim.coef
+    theo_yield = ratio * prod.coef * prod.molar_mass
+    
+    state.msg = f"Limiting Reactant: {lim.name} ({lim.formula}) | Theoretical Yield: {theo_yield:.2f}g"
+    
+    if state.actual_yield > 0:
+        pct = (state.actual_yield / theo_yield) * 100
+        state.msg += f" | Percent Yield: {pct:.2f}%"
+        
+    return results(state)
+
+@route
+def results(state: State):
+    return Page(state, [
+        "Results:",
+        state.msg,
+        Button("See Explanation", explanation),
         Button("Restart", reset)
     ])
 
-    return Page(state, content)
-
-
 @route
-def add_chemical(state: State) -> Page:
-    # Form to add a new chemical
+def explanation(state: State):
     return Page(state, [
-        "Fill out the chemical details below",
-        "Reactant or Product?", SelectBox("chem_type", ["Reactant", "Product"]),
-        "Name:", TextBox("name", "Ammonia"),
-        "Formula:", TextBox("formula", "NH3"),
-        "Mole Coefficient:", TextBox("coefficient", "2"),
-        "Molar Mass (g/mol):", TextBox("molar_mass", "17.031"),
-        "Starting Mass (g) [0 if it's a Product]:", TextBox("mass_grams", "0.0"),
-        "Notes:", TextArea("notes", "Gas phase"),
-        Button("Add to List", save_chemical),
-        Button("Go Back", reaction_summary)
+        "How it works:",
+        "1. Convert starting grams to moles.",
+        "2. Divide by the balanced equation coefficient.",
+        "3. The smallest ratio is the limiting reactant.",
+        "4. Multiply that ratio by the product's coefficient and molar mass.",
+        Button("Back", results)
     ])
 
-
 @route
-def save_chemical(
-    state: State,
-    chem_type: str,
-    name: str,
-    formula: str,
-    coefficient: str,
-    molar_mass: str,
-    mass_grams: str,
-    notes: str
-) -> Page:
-    # Convert types and add to state
-    is_reactant = True if chem_type == "Reactant" else False
-
-    if not name or not formula:
-        state.result_message = "Hold on, you need to provide a name and formula."
-        return reaction_summary(state)
-
-    new_chem = Chemical(
-        name=name,
-        formula=formula,
-        coefficient=int(coefficient),
-        molar_mass=float(molar_mass),
-        mass_grams=float(mass_grams),
-        is_reactant=is_reactant,
-        notes=notes
-    )
-    state.chemicals.append(new_chem)
-    return reaction_summary(state)
+def reset(state: State):
+    state.equation = ""
+    state.chemicals = []
+    state.actual_yield = 0.0
+    state.msg = ""
+    return index(state)
 
 
-@route
-def calculate_results(state: State, actual_yield_input: str) -> Page:
-    # Do the actual stoichiometry math
-    state.actual_yield = float(actual_yield_input)
+# --- 4. SITE INFORMATION & UNIT TESTS ---
 
-    reactants = []
-    products = []
+set_site_information(
+    "tanx@udel.edu",
+    "Xavier's Stoichiometry Assistant",
+    ["OpenStax Chemistry 2e (Chapter 4: Stoichiometry)"],
+    ["Week_10_Brainstorming.pdf", "Week_11_Design_Phase.docx"],
+    ["https://github.com/tanx-from-UD/final-project-attempt1"]
+)
 
-    for chem in state.chemicals:
-        if chem.is_reactant:
-            reactants.append(chem)
-        else:
-            products.append(chem)
+hide_debug_information()
 
-    if not reactants or not products:
-        state.result
+# Test Data
+H2_TEST = Chemical("Hydrogen", "H2", 2, 2.0, 2.0, True)
+O2_TEST = Chemical("Oxygen", "O2", 1, 32.0, 32.0, True)
+H2O_TEST = Chemical("Water", "H2O", 2, 18.0, 0.0, False)
+EXPECTED_MSG = "Limiting Reactant: Hydrogen (H2) | Theoretical Yield: 18.00g | Percent Yield: 50.00%"
+
+# Helper Tests
+assert_equal(get_limiting([H2_TEST, O2_TEST]), H2_TEST)
+
+# Route Tests
+assert_equal(
+    index(State("", [], 0.0, "")),
+    Page(State("", [], 0.0, ""), [
+        "Xavier's Stoichiometry Calculator",
+        "Enter your balanced equation:",
+        TextBox("eq", "e.g., N2 + 3H2 -> 2NH3"),
+        Button("Start", "save_eq")
+    ])
+)
+
+assert_equal(
+    save_eq(State("", [], 0.0, ""), "2H2 + O2 -> 2H2O"),
+    Page(State("2H2 + O2 -> 2H2O", [], 0.0, ""), [
+        "Equation: 2H2 + O2 -> 2H2O", "---", "Chemicals:",
+        "None added yet.", "---",
+        Button("Add Chemical", "add_chem"),
+        "Actual yield in grams (leave 0.0 if not known):",
+        TextBox("actual_y", "0.0"),
+        Button("Calculate", "calc_results"),
+        Button("Restart", "reset")
+    ])
+)
+
+assert_equal(
+    main_hub(State("A -> B", [], 0.0, "")),
+    Page(State("A -> B", [], 0.0, ""), [
+        "Equation: A -> B", "---", "Chemicals:",
+        "None added yet.", "---",
+        Button("Add Chemical", "add_chem"),
+        "Actual yield in grams (leave 0.0 if not known):",
+        TextBox("actual_y", "0.0"),
+        Button("Calculate", "calc_results"),
+        Button("Restart", "reset")
+    ])
+)
+
+assert_equal(
+    add_chem(State("", [], 0.0, "")),
+    Page(State("", [], 0.0, ""), [
+        "Type:", SelectBox("c_type", ["Reactant", "Product"]),
+        "Name:", TextBox("name", "Ammonia"),
+        "Formula:", TextBox("formula", "NH3"),
+        "Coefficient:", TextBox("coef", "2"),
+        "Molar Mass (g/mol):", TextBox("mmass", "17.031"),
+        "Starting Mass (0 for products):", TextBox("mass", "0.0"),
+        Button("Save", "save_chem")
+    ])
+)
+
+assert_equal(
+    save_chem(State("2H2 + O2 -> 2H2O", [], 0.0, ""), "Reactant", "Hydrogen", "H2", "2", "2.0", "2.0"),
+    Page(State("2H2 + O2 -> 2H2O", [H2_TEST], 0.0, ""), [
+        "Equation: 2H2 + O2 -> 2H2O", "---", "Chemicals:",
+        "- Hydrogen (H2) | 2.0g | Reactant", "---",
+        Button("Add Chemical", "add_chem"),
+        "Actual yield in grams (leave 0.0 if not known):",
+        TextBox("actual_y", "0.0"),
+        Button("Calculate", "calc_results"),
+        Button("Restart", "reset")
+    ])
+)
+
+assert_equal(
+    calc_results(State("2H2 + O2 -> 2H2O", [H2_TEST, O2_TEST, H2O_TEST], 0.0, ""), "9.0"),
+    Page(State("2H2 + O2 -> 2H2O", [H2_TEST, O2_TEST, H2O_TEST], 9.0, EXPECTED_MSG), [
+        "Results:", EXPECTED_MSG,
+        Button("See Explanation", "explanation"),
+        Button("Restart", "reset")
+    ])
+)
+
+assert_equal(
+    results(State("", [], 0.0, "Test Msg")),
+    Page(State("", [], 0.0, "Test Msg"), [
+        "Results:", "Test Msg",
+        Button("See Explanation", "explanation"),
+        Button("Restart", "reset")
+    ])
+)
+
+assert_equal(
+    explanation(State("", [], 0.0, "")),
+    Page(State("", [], 0.0, ""), [
+        "How it works:",
+        "1. Convert starting grams to moles.",
+        "2. Divide by the balanced equation coefficient.",
+        "3. The smallest ratio is the limiting reactant.",
+        "4. Multiply that ratio by the product's coefficient and molar mass.",
+        Button("Back", "results")
+    ])
+)
+
+assert_equal(
+    reset(State("A -> B", [H2_TEST], 5.0, "Done")),
+    Page(State("", [], 0.0, ""), [
+        "Xavier's Stoichiometry Calculator",
+        "Enter your balanced equation:",
+        TextBox("eq", "e.g., N2 + 3H2 -> 2NH3"),
+        Button("Start", "save_eq")
+    ])
+)
+
+start_server(State("", [], 0.0, ""))
