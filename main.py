@@ -249,10 +249,7 @@ set_site_information(
     "Chemistry Stoichiometry Assistant that calculates limiting reactants, "
     "theoretical yield, and percent yield for balanced reactions.",
     ["OpenStax Chemistry 2e (Chapter 4: Stoichiometry)"],
-    [
-        "Copy of CS1 Final Project 0_ Pick a Problem (1).pdf",
-        "Copy of CS1 Final Project 1_ Design (1).docx"
-    ],
+    ["Week_10_Brainstorming.pdf", "Week_11_Design_Phase.docx"],
     ["https://github.com/tanx-from-UD/final-project-attempt1"]
 )
 
