@@ -377,4 +377,48 @@ assert_equal(
             EXPECTED_MSG
         ),
         [
-            "
+            "Calculation Results:",
+            EXPECTED_MSG,
+            Button("View Explanation", "explanation"),
+            Button("Start Over", "reset")
+        ]
+    )
+)
+
+# Route 8: results
+assert_equal(
+    results(State("", [], 0.0, "Test Result")),
+    Page(State("", [], 0.0, "Test Result"), [
+        "Calculation Results:",
+        "Test Result",
+        Button("View Explanation", "explanation"),
+        Button("Start Over", "reset")
+    ])
+)
+
+# Route 9: explanation
+assert_equal(
+    explanation(State("", [], 0.0, "")),
+    Page(State("", [], 0.0, ""), [
+        "How the Calculation Works:",
+        "1. Convert starting mass to moles (mass / molar mass).",
+        "2. Divide moles by the stoichiometric coefficient.",
+        "3. The reactant with the smallest ratio is limiting.",
+        "4. Multiply ratio by product coefficient and molar mass for Yield.",
+        "5. Percent Yield = (Actual Yield / Theoretical Yield) * 100.",
+        Button("Back to Results", "results"),
+        Button("Start Over", "reset")
+    ])
+)
+
+# Route 10: reset
+assert_equal(
+    reset(State("2H2 + O2 -> 2H2O", [H2_TEST], 5.0, "Done")),
+    Page(State("", [], 0.0, ""), [
+        "Welcome to the Chemistry Stoichiometry Assistant!",
+        "Calculate limiting reactants, theoretical yield, and percent yield.",
+        Button("Start a calculation", "reaction_input")
+    ])
+)
+
+start_server(State("", [], 0.0, ""))
